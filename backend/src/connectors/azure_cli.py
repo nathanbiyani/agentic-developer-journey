@@ -2,18 +2,19 @@ import json
 import logging
 import os
 import signal
+import shutil
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from core.config import INFRASTRUCTURE_ROOT
 from domain.resource_catalog import to_bicep_parameters
 from models.schemas import DeploymentManifest
 
-TEMPLATE_PATH = INFRASTRUCTURE_ROOT / "main.bicep"
 logger = logging.getLogger("launchpad.azure")
+_workload_identity_login_lock = threading.Lock()
 
 
 class AzureCommandError(RuntimeError):
@@ -28,15 +29,72 @@ def _parameter_arguments(manifest: DeploymentManifest) -> list[str]:
     ]
 
 
+def _login_with_workload_identity(
+    azure_cli: str, environment: dict[str, str], timeout_seconds: int
+) -> None:
+    client_id = environment.get("AZURE_CLIENT_ID", "").strip()
+    tenant_id = environment.get("AZURE_TENANT_ID", "").strip()
+    token_file = environment.get("AZURE_FEDERATED_TOKEN_FILE", "").strip()
+    configured = [client_id, tenant_id, token_file]
+    if not any(configured):
+        return
+    if not all(configured):
+        raise AzureCommandError(
+            "AKS workload identity is incomplete. AZURE_CLIENT_ID, AZURE_TENANT_ID, "
+            "and AZURE_FEDERATED_TOKEN_FILE must all be configured."
+        )
+
+    token_path = Path(token_file)
+    if not token_path.is_file():
+        raise AzureCommandError("The AKS workload identity token file is unavailable.")
+
+    with _workload_identity_login_lock:
+        result = subprocess.run(
+            [
+                azure_cli,
+                "login",
+                "--service-principal",
+                "--username",
+                client_id,
+                "--tenant",
+                tenant_id,
+                "--federated-token",
+                token_path.read_text().strip(),
+                "--allow-no-subscriptions",
+                "--only-show-errors",
+                "--output",
+                "none",
+            ],
+            capture_output=True,
+            text=True,
+            env=environment,
+            timeout=min(timeout_seconds, 60),
+            check=False,
+        )
+    if result.returncode != 0:
+        detail = result.stderr.strip() or "Azure workload identity authentication failed."
+        logger.error("azure.workload_identity_login.failed", extra={"error": detail[-2000:]})
+        raise AzureCommandError(detail)
+
+
 def _run_azure(args: list[str], *, expect_json: bool = True) -> Any:
     environment = {**os.environ, "AZURE_CORE_ONLY_SHOW_ERRORS": "true"}
     timeout_seconds = max(30, int(os.getenv("AZURE_COMMAND_TIMEOUT_SECONDS", "600")))
     heartbeat_seconds = max(5, int(os.getenv("AZURE_COMMAND_HEARTBEAT_SECONDS", "30")))
     operation = " ".join(args[:3])
     started = time.perf_counter()
+    azure_cli = shutil.which("az")
+    if not azure_cli:
+        logger.error("azure.command.missing", extra={"operation": operation})
+        raise AzureCommandError("Azure CLI is not installed on the backend host.")
+    try:
+        _login_with_workload_identity(azure_cli, environment, timeout_seconds)
+    except (OSError, subprocess.SubprocessError) as error:
+        logger.exception("azure.workload_identity_login.failed")
+        raise AzureCommandError("Azure workload identity authentication failed.") from error
     try:
         process = subprocess.Popen(
-            ["az", *args],
+            [azure_cli, *args],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -139,7 +197,7 @@ def check_azure_session() -> dict[str, object]:
 def run_what_if(
     manifest: DeploymentManifest,
     deployment_stamp: str,
-    template_path: Path = TEMPLATE_PATH,
+    template_path: Path,
 ) -> dict[str, object]:
     # Subscription deployment names are permanently associated with their first
     # location. Include the region so validation never collides with Azure CLI's
@@ -150,7 +208,6 @@ def run_what_if(
         extra={
             "deploymentName": validation_name,
             "location": manifest.location,
-            "resourceGroup": manifest.resource_group_name,
             "resourceCount": len(manifest.resources),
             "chatModel": manifest.chat_model.name,
             "embeddingModel": manifest.embedding_model.name if manifest.embedding_model else None,
@@ -170,7 +227,6 @@ def run_what_if(
             "--template-file",
             str(template_path),
             "--parameters",
-            f"resourceGroupName={manifest.resource_group_name}",
             f"deploymentStamp={deployment_stamp}",
             *_parameter_arguments(manifest),
             "--result-format",
@@ -190,7 +246,7 @@ def run_what_if(
 def deploy(
     manifest: DeploymentManifest,
     deployment_stamp: str,
-    template_path: Path = TEMPLATE_PATH,
+    template_path: Path,
 ) -> dict[str, object]:
     deployment_name = f"{manifest.workload_name}-{str(uuid4())[:8]}"
     _run_azure(
@@ -207,7 +263,6 @@ def deploy(
             "--template-file",
             str(template_path),
             "--parameters",
-            f"resourceGroupName={manifest.resource_group_name}",
             f"deploymentStamp={deployment_stamp}",
             *_parameter_arguments(manifest),
             "--no-wait",
@@ -215,6 +270,32 @@ def deploy(
         expect_json=False,
     )
     return {"deploymentName": deployment_name, "state": "Submitted"}
+
+
+def _operation_resource(operation: dict[str, object]) -> dict[str, object] | None:
+    operation_properties = operation.get("properties", {})
+    if not isinstance(operation_properties, dict):
+        return None
+    target = operation_properties.get("targetResource") or {}
+    if not isinstance(target, dict) or not target.get("id"):
+        return None
+    status_message = operation_properties.get("statusMessage") or {}
+    error = status_message.get("error") if isinstance(status_message, dict) else None
+    return {
+        "resourceId": target["id"],
+        "name": target.get("resourceName"),
+        "type": target.get("resourceType"),
+        "state": operation_properties.get("provisioningState", "Running"),
+        "error": error,
+    }
+
+
+def _resource_group_from_id(resource_id: str) -> str | None:
+    segments = [segment for segment in resource_id.split("/") if segment]
+    for index, segment in enumerate(segments[:-1]):
+        if segment.lower() == "resourcegroups":
+            return segments[index + 1]
+    return None
 
 
 def deployment_status(manifest: DeploymentManifest, deployment_name: str) -> dict[str, object]:
@@ -238,45 +319,61 @@ def deployment_status(manifest: DeploymentManifest, deployment_name: str) -> dic
     if not isinstance(outputs, dict):
         outputs = {}
     resources: list[dict[str, object]] = []
-    nested_name = f"deploy-{manifest.workload_name}-resources"
     try:
         operations = _run_azure(
             [
                 "deployment",
                 "operation",
-                "group",
+                "sub",
                 "list",
                 "--subscription",
                 str(manifest.subscription_id),
-                "--resource-group",
-                manifest.resource_group_name,
                 "--name",
-                nested_name,
+                deployment_name,
                 "--output",
                 "json",
             ]
         )
         for operation in operations:
-            operation_properties = operation.get("properties", {})
-            target = operation_properties.get("targetResource") or {}
-            if not isinstance(target, dict):
+            resource = _operation_resource(operation)
+            if resource is None:
                 continue
-            resource_id = target.get("id")
-            if not resource_id:
+            if str(resource.get("type", "")).lower() != "microsoft.resources/deployments":
+                resources.append(resource)
                 continue
-            status_message = operation_properties.get("statusMessage") or {}
-            error = status_message.get("error") if isinstance(status_message, dict) else None
-            resources.append(
-                {
-                    "resourceId": resource_id,
-                    "name": target.get("resourceName"),
-                    "type": target.get("resourceType"),
-                    "state": operation_properties.get("provisioningState", "Running"),
-                    "error": error,
-                }
-            )
+            resource_group = _resource_group_from_id(str(resource["resourceId"]))
+            nested_name = resource.get("name")
+            if not resource_group or not nested_name:
+                resources.append(resource)
+                continue
+            try:
+                nested_operations = _run_azure(
+                    [
+                        "deployment",
+                        "operation",
+                        "group",
+                        "list",
+                        "--subscription",
+                        str(manifest.subscription_id),
+                        "--resource-group",
+                        resource_group,
+                        "--name",
+                        str(nested_name),
+                        "--output",
+                        "json",
+                    ]
+                )
+            except AzureCommandError:
+                resources.append(resource)
+                continue
+            nested_resources = [
+                item
+                for nested_operation in nested_operations
+                if (item := _operation_resource(nested_operation)) is not None
+            ]
+            resources.extend(nested_resources or [resource])
     except AzureCommandError:
-        # The nested deployment may not exist during the first few ARM polling cycles.
+        # Deployment operations may not be visible during the first few ARM polling cycles.
         pass
 
     return {
@@ -288,20 +385,3 @@ def deployment_status(manifest: DeploymentManifest, deployment_name: str) -> dic
         "outputs": outputs,
         "resources": resources,
     }
-
-
-def delete_resource_group(subscription_id: str, resource_group_name: str) -> dict[str, str]:
-    _run_azure(
-        [
-            "group",
-            "delete",
-            "--subscription",
-            subscription_id,
-            "--name",
-            resource_group_name,
-            "--yes",
-            "--no-wait",
-        ],
-        expect_json=False,
-    )
-    return {"status": "deletion-started"}
