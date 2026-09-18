@@ -57,9 +57,10 @@
 
 .operational-form > .operational-section { display: none; min-height: 280px; padding: 22px; }
 .operational-form.wizard-step-1 > .operational-section:nth-of-type(1),
-.operational-form.wizard-step-2 > .operational-section:nth-of-type(2),
-.operational-form.wizard-step-3 > .operational-section:nth-of-type(3),
-.operational-form.wizard-step-4 > .operational-section:nth-of-type(4) { display: block; }
+.operational-form.wizard-step-1 > .operational-section:nth-of-type(2),
+.operational-form.wizard-step-2 > .operational-section:nth-of-type(3),
+.operational-form.wizard-step-3 > .operational-section:nth-of-type(4) { display: block; }
+.operational-form.wizard-step-1 > .operational-section:nth-of-type(2) .requirement-fields > label:nth-child(-n+2) { display: none; }
 .operational-form > .blueprint-actions { display: none; }
 
 .operational-wizard-actions {
