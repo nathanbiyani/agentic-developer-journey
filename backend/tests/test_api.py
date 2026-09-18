@@ -120,6 +120,39 @@ def test_readiness_checks_artifact_repository() -> None:
     assert response.json() == {"status": "ready", "artifactStore": "available"}
 
 
+def test_approved_use_case_exposes_locked_baseline_and_lifecycle() -> None:
+    inventory = client.get("/api/use-cases")
+    assert inventory.status_code == 200
+    records = inventory.json()
+    assert {record["status"] for record in records} == {"Awaiting Review", "Approved", "In Progress", "Completed", "Rejected"}
+    assert all(record["sourceSystem"] == "J&J Governance Portal" for record in records)
+    review_record = next(record for record in records if record["status"] == "Awaiting Review")
+    assert review_record["approvedDefinition"] == []
+    assert next(stage for stage in review_record["lifecycle"] if stage["key"] == "enablement")["status"] == "blocked"
+    rejected_record = next(record for record in records if record["status"] == "Rejected")
+    assert rejected_record["approvedAt"] is None
+    assert next(stage for stage in rejected_record["lifecycle"] if stage["key"] == "enablement")["status"] == "blocked"
+    provisioning_record = next(record for record in records if record["status"] == "In Progress")
+    assert provisioning_record["currentStage"] == "infrastructure-deploy"
+    assert next(stage for stage in provisioning_record["lifecycle"] if stage["status"] == "current")["label"] == "Infrastructure & Deploy"
+
+    response = client.get("/api/use-cases/AI-2026-0118")
+    assert response.status_code == 200
+    record = response.json()
+    assert record["status"] == "Approved"
+    assert record["currentStage"] == "data-knowledge"
+    assert len(record["approvedDefinition"]) == 6
+    assert [stage["key"] for stage in record["lifecycle"]] == [
+        "submit", "coe-review", "governance", "approved", "data-knowledge",
+        "tools-agents", "channels", "memory-state", "architecture", "access-governance",
+        "model-capacity", "region-readiness", "infrastructure-deploy", "production",
+    ]
+    assert next(stage for stage in record["lifecycle"] if stage["status"] == "current")["owner"] == "Developer"
+
+    missing = client.get("/api/use-cases/AI-unknown")
+    assert missing.status_code == 404
+
+
 def test_governance_risk_is_calculated_by_api() -> None:
     response = client.post(
         "/api/governance/risk-assessment",

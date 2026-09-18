@@ -184,3 +184,38 @@ class CleanupRequest(ApiModel):
     subscription_id: UUID = Field(alias="subscriptionId")
     resource_group_name: ResourceGroupName = Field(alias="resourceGroupName")
     confirm: Literal[True]
+
+
+class ApprovedFact(ApiModel):
+    label: str
+    value: str
+
+
+class ApprovedDefinitionSection(ApiModel):
+    key: SafeName
+    title: str
+    facts: list[ApprovedFact]
+
+
+class LifecycleStage(ApiModel):
+    key: SafeName
+    label: str
+    status: Literal["complete", "current", "blocked", "pending"]
+    owner: str
+    completed_at: str | None = Field(default=None, alias="completedAt")
+
+
+class UseCaseRecord(ApiModel):
+    id: SafeName
+    name: str
+    source_system: Literal["J&J Governance Portal"] = Field(alias="sourceSystem")
+    source_updated_at: str = Field(alias="sourceUpdatedAt")
+    status: Literal["Draft", "Awaiting Review", "Approved", "In Progress", "Blocked", "Completed", "Rejected"]
+    current_stage: SafeName = Field(alias="currentStage")
+    risk_level: Literal["Low", "Moderate", "High", "Restricted"] = Field(alias="riskLevel")
+    data_classification: str = Field(alias="dataClassification")
+    business_unit: str = Field(alias="businessUnit")
+    summary: str
+    approved_at: str | None = Field(default=None, alias="approvedAt")
+    approved_definition: list[ApprovedDefinitionSection] = Field(alias="approvedDefinition")
+    lifecycle: list[LifecycleStage]

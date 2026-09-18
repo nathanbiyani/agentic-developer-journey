@@ -11,7 +11,7 @@ load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 from core.observability import begin_correlation, configure_logging, end_correlation
 from core.settings import FRONTEND_ORIGIN
-from routers import architecture, catalog, deployments, governance, health, packages, platform, regions
+from routers import architecture, catalog, deployments, governance, health, packages, platform, regions, use_cases
 
 configure_logging(os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("launchpad.api")
@@ -34,6 +34,7 @@ for router in (
     platform.router,
     regions.router,
     deployments.router,
+    use_cases.router,
 ):
     app.include_router(router)
 

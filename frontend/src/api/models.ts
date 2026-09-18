@@ -114,3 +114,19 @@ export type EmbeddingModelOption = {id:'text-embedding-3-small'|'text-embedding-
 export type ModelRecommendation = {model:ModelOption;score:number;level:'Focused'|'Balanced'|'Advanced';reasons:string[];capacity:string}
 export type ModelRecommendationRequest = {capabilities:string[];dataTypes:string[];dataUses:string[];connectors:string[];memory:string[];regulated:boolean;scale:'small'|'medium'|'large'}
 export type Catalog = {models:ModelOption[];embeddingModels:EmbeddingModelOption[];regions:{label:string;code:string;suffix:string}[]}
+
+export type UseCaseRecord = {
+  id:string
+  name:string
+  sourceSystem:'J&J Governance Portal'
+  sourceUpdatedAt:string
+  status:'Draft'|'Awaiting Review'|'Approved'|'In Progress'|'Blocked'|'Completed'|'Rejected'
+  currentStage:string
+  riskLevel:'Low'|'Moderate'|'High'|'Restricted'
+  dataClassification:string
+  businessUnit:string
+  summary:string
+  approvedAt:string|null
+  approvedDefinition:{key:string;title:string;facts:{label:string;value:string}[]}[]
+  lifecycle:{key:string;label:string;status:'complete'|'current'|'blocked'|'pending';owner:string;completedAt:string|null}[]
+}
