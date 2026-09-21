@@ -121,6 +121,11 @@
 .deployment-plan-view .deployment-live>div>span>i{width:26px;height:26px;font-size:10px}
 .deployment-plan-view .deployment-live>div strong{font-size:12px}.deployment-plan-view .deployment-live>div small{font-size:10px!important}.deployment-plan-view .deployment-live>div>span>em{font-size:10px}
 .deployment-plan-view .inventory-empty{font-size:12px;line-height:1.5;padding:23px;text-align:center;color:#647386}
+.deployment-plan-view>.inventory-progress{width:100%;min-height:350px;box-sizing:border-box;flex-direction:column;text-align:center}
+.deployment-plan-view>.inventory-progress>i{width:34px;height:34px;border-width:4px}
+.deployment-plan-view>.inventory-progress>span{display:flex;flex-direction:column;align-items:center}
+.deployment-plan-view>.inventory-progress strong{font-size:15px;color:#34465a}
+.deployment-plan-view>.inventory-progress small{max-width:430px;margin-top:5px;font-size:11px!important;color:#748191}
 .deployment-action-bar{padding:15px 18px}.deployment-action-bar>div:first-child{gap:12px}.deployment-action-bar>div:first-child>i{width:34px;height:34px;font-size:15px}
 .deployment-action-bar strong{font-size:14px!important;line-height:1.35}.deployment-action-bar small{font-size:11px!important;line-height:1.45;margin-top:3px}.deployment-action-bar .solution-primary{min-width:145px;padding:12px 18px;font-size:12px}
 
