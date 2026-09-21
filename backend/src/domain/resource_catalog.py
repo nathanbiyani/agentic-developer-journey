@@ -61,38 +61,9 @@ def describe_resources(keys: list[ResourceKey]) -> list[dict[str, object]]:
 
 
 def to_bicep_parameters(manifest: DeploymentManifest) -> dict[str, object]:
-    resources = resolve_resources(manifest.resources)
-    has = resources.__contains__
-    embedding = manifest.embedding_model
     platform = manifest.platform_resources
     return {
         "workloadName": manifest.workload_name,
-        "location": manifest.location,
-        "foundryResourceGroupName": platform.foundry_resource_group,
-        "foundryAccountName": platform.foundry_account_name,
         "storageResourceGroupName": platform.storage_resource_group,
         "storageAccountName": platform.storage_account_name,
-        "cosmosResourceGroupName": platform.cosmos_resource_group,
-        "cosmosAccountName": platform.cosmos_account_name,
-        "cosmosDatabaseName": platform.cosmos_database_name,
-        "searchResourceGroupName": platform.search_resource_group,
-        "searchServiceName": platform.search_service_name,
-        "searchIndexName": platform.search_index_name,
-        "managedIdentityResourceId": platform.managed_identity_resource_id,
-        "deployFoundryProject": has("foundry"),
-        "deployChatModel": has("chat-model"),
-        "deployEmbeddingModel": has("embedding-model"),
-        "deployStorageContainer": has("storage"),
-        "deployCosmosContainer": has("cosmos"),
-        "referenceSearchIndex": has("ai-search"),
-        "chatModelName": manifest.chat_model.name,
-        "chatModelVersion": manifest.chat_model.version,
-        "chatModelSku": manifest.chat_model.sku,
-        "chatModelCapacity": manifest.chat_model.capacity,
-        "embeddingModelName": embedding.name if embedding else "text-embedding-3-small",
-        "embeddingModelVersion": embedding.version if embedding else "1",
-        "embeddingModelSku": embedding.sku if embedding else "GlobalStandard",
-        "embeddingModelCapacity": embedding.capacity if embedding else 10,
-        "cosmosPartitionKeyPath": manifest.cosmos_partition_key_path,
-        "tags": manifest.tags,
     }

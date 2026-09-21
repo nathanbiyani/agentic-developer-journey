@@ -112,23 +112,23 @@ def _resource_types(value: Any) -> list[str]:
 def _enforce_existing_resource_topology(directory: Path) -> None:
     compiled = json.loads((directory / "main.json").read_text(encoding="utf-8"))
     resource_types = set(_resource_types(compiled))
-    forbidden = {
-        "microsoft.resources/resourcegroups",
-        "microsoft.cognitiveservices/accounts",
-        "microsoft.storage/storageaccounts",
-        "microsoft.documentdb/databaseaccounts",
-        "microsoft.search/searchservices",
-        "microsoft.managedidentity/userassignedidentities",
-        "microsoft.network/virtualnetworks",
+    deployed_resource_types = {
+        resource_type
+        for resource_type in resource_types
+        if resource_type.startswith("microsoft.")
     }
-    created_forbidden = sorted(forbidden & resource_types)
-    if created_forbidden:
+    allowed = {
+        "microsoft.resources/deployments",
+        "microsoft.storage/storageaccounts/blobservices/containers",
+    }
+    unexpected = sorted(deployed_resource_types - allowed)
+    if unexpected:
         raise PackageError(
-            "Safety check failed: package creates platform parent resources: "
-            + ", ".join(created_forbidden)
+            "Safety check failed: package creates non-Storage-container resources: "
+            + ", ".join(unexpected)
         )
-    if "microsoft.cognitiveservices/accounts/projects" not in resource_types:
-        raise PackageError("Safety check failed: package does not create a Foundry project.")
+    if "microsoft.storage/storageaccounts/blobservices/containers" not in resource_types:
+        raise PackageError("Safety check failed: package does not create a Storage container.")
 
 
 def _hash_files(directory: Path, names: list[str]) -> str:
@@ -165,9 +165,7 @@ def _write_package_artifacts(
 def create_package(request: ArchitecturePackageRequest) -> dict[str, object]:
     required_templates = [
         CATALOG_ROOT / "main.bicep",
-        CATALOG_ROOT / "modules" / "foundry.bicep",
         CATALOG_ROOT / "modules" / "storage-container.bicep",
-        CATALOG_ROOT / "modules" / "cosmos-container.bicep",
     ]
     missing_templates = [str(path.relative_to(CATALOG_ROOT)) for path in required_templates if not path.is_file()]
     if missing_templates:

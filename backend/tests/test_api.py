@@ -282,17 +282,16 @@ def test_approval_generates_compiled_bicep_package() -> None:
     files = {item["path"]: item["content"] for item in package["files"]}
     assert {
         "main.bicep",
-        "modules/foundry.bicep",
         "modules/storage-container.bicep",
-        "modules/cosmos-container.bicep",
         "main.bicepparam",
     } <= files.keys()
-    assert "param foundryAccountName = 'aif-platform'" in files["main.bicepparam"]
-    assert "param cosmosPartitionKeyPath = '/applicationId'" in files["main.bicepparam"]
+    assert "param storageAccountName = 'stplatformdata'" in files["main.bicepparam"]
     assert "param deploymentStamp = '" in files["main.bicepparam"]
-    assert "Microsoft.CognitiveServices/accounts/projects" in files["modules/foundry.bicep"]
     assert "Microsoft.Storage/storageAccounts@2023-05-01' existing" in files["modules/storage-container.bicep"]
-    assert "Microsoft.DocumentDB/databaseAccounts@2024-05-15' existing" in files["modules/cosmos-container.bicep"]
+    assert files["main.bicep"].count("module ") == 1
+    assert "./modules/storage-container.bicep" in files["main.bicep"]
+    assert "foundry.bicep" not in files["main.bicep"]
+    assert "cosmos-container.bicep" not in files["main.bicep"]
     assert "Microsoft.Resources/resourceGroups" not in files["main.bicep"]
     assert "Microsoft.Search/searchServices@" not in files["main.bicep"]
 
